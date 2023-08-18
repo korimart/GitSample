@@ -35,20 +35,12 @@ class InvalidPortNumberException(Exception):
     pass
 
 
-class InvalidReflectionUseException(Exception):
-    """Raised when the reflection is enabled but S parameter is not set to 'ALL'"""
-    pass
-
-
-class InvalidSnpFileException(Exception):
-    """Raised when the SNP file format does not match with number of VNA Ports chosen."""
-    pass
-
-
 class VectorNetworkAnalyzerKeysight(object):
     """! Keysight Vector Network Analyzer Class
     
     """
+
+    # TODO: migrate some functions to TxBandReturnLoss Class
 
     def __init__(self, vna_session=None, vna_vendor='', vna_model=''):
         """! Init
@@ -95,16 +87,6 @@ class VectorNetworkAnalyzerKeysight(object):
             raise InvalidPortTypeException("Port Type must be a list of integers.")
         if not all(1 <= port <= 4 for port in vna_ports):
             raise InvalidPortNumberException("Port Numbers must be between 1 to 4.")
-    
-    def __throw_if_invalid_reflection_use(self, s_parameter, reflection):
-        if reflection and s_parameter != 'ALL':
-            raise InvalidReflectionUseException("S parameter must be set to 'ALL' to enable reflection.")
-
-    def __throw_if_invalid_snp_file(self, snp_file_path, vna_ports):
-        n = len(vna_ports)
-        base_name =os.path.basename(snp_file_path)
-        if f'.s{n}p' not in base_name:
-            raise InvalidSnpFileException("File format must match with the number of VNA Ports used.")
 
     def ports_list_to_string(self, vna_ports):
         vna_ports.sort()
@@ -163,23 +145,6 @@ class VectorNetworkAnalyzerKeysight(object):
             self.write_opc(f"CALC:MEAS:DEF '{s_parameter}'")
             self.write_opc(f"DISP:MEAS:FEED 1")
 
-    def configure_settings(self, start_frequency, stop_frequency, step_frequency, reference_power_level, vna_ports: list[int], s_parameter):
-        """!
-        @param vna_ports 1-based indexing. Port numbers between 1 to 4.
-        @param s_parameter 'S11', 'S12', ..., 'S21', ..., 'S44', and 'ALL' for all S parameters based on the number of VNA ports being used.
-        """
-        self.initialize_display()
-        self.set_ports_to_be_calibrated(vna_ports)
-        self.set_frequency_range(start_frequency, stop_frequency, step_frequency)
-        self.set_reference_power_level(reference_power_level, vna_ports)
-        self.set_and_display_traces(vna_ports, s_parameter)
-
-    def initiate_measurement(self):
-        """!
-
-        """
-        pass   
-
     def save_screen(self, stem_of_file_name):
         """!
         
@@ -215,76 +180,6 @@ class VectorNetworkAnalyzerKeysight(object):
 
         """
         pass
-
-    # FIXME: can a type hint be list[dict: dict]?
-    # TODO: Refactor
-    def get_test_results_from_snp_file(self, snp_file_path: str, vna_ports: list[int], s_parameter: Union[str, list[str]], reflection=False) -> list[dict]:
-        """!
-        @param s_parameter 'S11', 'S12', ..., 'S21', ..., 'S44', and 'ALL' for all S parameters based on the number of VNA ports being used.
-        @param reflection Set to True with s_parameter to 'ALL'
-        """
-        self.__throw_if_invalid_ports(vna_ports)
-        # FIXME: should this code only be in this function only?
-        self.__throw_if_invalid_reflection_use(s_parameter, reflection)
-
-        test_results = []
-        network = skrf.Network(snp_file_path)
-        if s_parameter == 'ALL':
-            n = len(vna_ports)
-            if reflection:
-                s_params = [f'S{i}{i}' for i in range(1, n+1)]
-                measurements = [network.s_db[:, i, i] for i in range(n)]
-            else:
-                s_params = [f'S{i}{j}' for i in range(1, n+1) for j in range(1, n+1)]
-                measurements = [network.s_db[:, i, j] for i in range(n) for j in range(n)]
-            for i, param in enumerate(s_params):
-                for j, frequency in enumerate(network.f):
-                    test_results.append({f'{param}': {frequency: measurements[i][j]}})
-        elif type(s_parameter) == list:
-            s_param_matrix_indices = [[int(value)-1 for value in s_param.replace('S', '').replace('',  ' ').split()] for s_param in s_parameter]
-            measurements = [network.s_db[:, indices[0], indices[1]] for indices in s_param_matrix_indices]
-            for i, s_param in enumerate(s_parameter):
-                for j, frequency in enumerate(network.f):
-                    test_results.append({f'{s_param}': {frequency: measurements[i][j]}})
-        else:
-            s_param_matrix_index = [int(value)-1 for value in s_parameter.replace('S', '').replace('',  ' ').split()]
-            measurements = [network.s_db[:, s_param_matrix_index[0], s_param_matrix_index[1]]]
-            for i, frequency in enumerate(network.f):
-                test_results.append({f'{s_parameter}': {frequency: measurements[0][i]}})
-
-        return test_results
-
-    def log_tx_band_return_loss_pass_fail(self, snp_file_path: str, vna_ports: list[int], s_parameter: Union[str, list[str]], reflection: bool, maximum_allowable_return_loss):
-        """!
-        @param s_parameter 'S11', 'S12', ..., 'S21', ..., 'S44', and 'ALL' for all S parameters based on the number of VNA ports being used.
-        @param reflection Set to True with s_parameter to 'ALL'
-        """
-        # TODO: refactor
-        self.__throw_if_invalid_snp_file(snp_file_path, vna_ports)
-
-        test_results = self.test_get_test_results(snp_file_path, vna_ports, s_parameter, reflection)
-        for result in test_results:
-            for s_param, measurements in result.items():
-                for frequency, return_loss in measurements.items():
-                    if not (-return_loss) < maximum_allowable_return_loss:
-                        logger.info(f"Test Failed at S-PARAMETER: {s_param}, FREQUENCY: {'%.3E'%Decimal(frequency)},  RETURN LOSS: {round(-return_loss, 4)}, OFFSET: {round(-return_loss-maximum_allowable_return_loss, 4)}")
-
-    def perform_calibration_for_tx_band_return_loss(self, start_frequency, stop_frequency, step_frequency, reference_power_level, vna_ports: list[int], s_parameter: Union[str, list[str]], reflection: bool, stem_of_file_name, maximum_allowable_return_loss):
-        """!
-        @param vna_ports 1-based indexing. Port numbers between 1 to 4.
-        @param s_parameter 'S11', 'S12', ..., 'S21', ..., 'S44', and 'ALL' for all S parameters based on the number of VNA ports being used.
-        @param reflection Set to True with s_parameter to 'ALL'
-        """
-        self.configure_settings(start_frequency, stop_frequency, step_frequency, reference_power_level, vna_ports, s_parameter)       
-        self.initiate_measurement()
-
-        saved_screenshot_file_name = self.save_screen(stem_of_file_name)
-        saved_traces_file_name = self.save_traces(vna_ports, s_parameter, stem_of_file_name)
-
-        saved_screenshot_file_path = self.copy_file_to_local(saved_screenshot_file_name)
-        saved_traces_file_path = self.copy_file_to_local(saved_traces_file_name)
-
-        self.log_tx_band_return_loss_pass_fail(saved_traces_file_path, vna_ports, s_parameter, reflection, maximum_allowable_return_loss)
 
 
 if __name__ == "__main__":

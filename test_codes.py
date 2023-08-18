@@ -13,68 +13,97 @@ class InvalidReflectionUseException(Exception):
     pass
 
 
-class InvalidSnpFileException(Exception):
-    """Raised when the SNP file format does not match with number of VNA Ports chosen."""
+class InvalidSparameterException(Exception):
+    """Raised when the S parameter given is out of range based on the VNA Ports chosen."""
     pass
 
 def __throw_if_invalid_reflection_use(s_parameter, reflection):
     if reflection and s_parameter != 'ALL':
         raise InvalidReflectionUseException("S parameter must be set to 'ALL' to enable reflection.")
 
-def __throw_if_invalid_snp_file(snp_file_path, vna_ports):
-    n = len(vna_ports)
-    base_name =os.path.basename(snp_file_path)
-    if f'.s{n}p' not in base_name:
-        raise InvalidSnpFileException("File format must match with the number of VNA Ports used.")
-
-def test_get_test_results(snp_file_path, vna_ports, s_parameter: Union[str, list[str]], reflection=False):
-    __throw_if_invalid_reflection_use(s_parameter, reflection)
-
-    test_results = []
-    network = skrf.Network(snp_file_path)
+def __throw_if_invalid_s_parameter(vna_ports, s_parameter):
     if s_parameter == 'ALL':
-        n = len(vna_ports)
-        if reflection:
-            s_params = [f'S{i}{i}' for i in range(1, n+1)]
-            measurements = [network.s_db[:, i, i] for i in range(n)]
-        else:
-            s_params = [f'S{i}{j}' for i in range(1, n+1) for j in range(1, n+1)]
-            measurements = [network.s_db[:, i, j] for i in range(n) for j in range(n)]
-        for i, param in enumerate(s_params):
-            for j, frequency in enumerate(network.f):
-                test_results.append({f'{param}': {frequency: measurements[i][j]}})
+        pass
     elif type(s_parameter) == list:
-        s_param_matrix_indices = [[int(value)-1 for value in s_param.replace('S', '').replace('',  ' ').split()] for s_param in s_parameter]
-        measurements = [network.s_db[:, indices[0], indices[1]] for indices in s_param_matrix_indices]
+        for s_param in s_parameter:
+            if int(s_param[1]) not in vna_ports:
+                raise InvalidSparameterException("S parameter should be within the range of selected VNA Ports.")
+    else:
+        if int(s_parameter[1]) not in vna_ports:
+            raise InvalidSparameterException("S parameter should be within the range of selected VNA Ports.")
+
+def get_s_parameter_matrix_indices(s_parameter):
+    if s_parameter == 'ALL':
+        pass
+    elif type(s_parameter) == list:
+        return [[int(value)-1 for value in s_param.replace('S', '').replace('',  ' ').split()] for s_param in s_parameter]
+    else:
+        return [int(value)-1 for value in s_parameter.replace('S', '').replace('',  ' ').split()]
+
+def get_all_active_s_parameters(network, reflection):
+    n = network.number_of_ports
+    if reflection:
+        return [f'S{i}{i}' for i in range(1, n+1)]
+    else:
+        return [f'S{i}{j}' for i in range(1, n+1) for j in range(1, n+1)]
+
+def get_s_parameter_measurements(network, s_parameter, reflection):
+    n = network.number_of_ports
+    matrix_indices = get_s_parameter_matrix_indices(s_parameter)
+    if s_parameter == 'ALL':
+        if reflection:
+            return [network.s_db[:, i, i] for i in range(n)]
+        else:
+            return [network.s_db[:, i, j] for i in range(n) for j in range(n)]
+    elif type(s_parameter) == list:
+        return [network.s_db[:, indices[0], indices[1]] for indices in matrix_indices]
+    else:
+        return network.s_db[:, matrix_indices[0], matrix_indices[1]]
+
+def convert_snp_results_to_list_of_dict(network, s_parameter, reflection):
+    results = []
+    measurements = get_s_parameter_measurements(network, s_parameter, reflection)
+    if type(s_parameter) == str and s_parameter != 'ALL':
+        for i, frequency in enumerate(network.f):
+            results.append({f'{s_parameter}': {frequency: measurements[i]}})
+    else:
         for i, s_param in enumerate(s_parameter):
             for j, frequency in enumerate(network.f):
-                test_results.append({f'{s_param}': {frequency: measurements[i][j]}})
+                results.append({f'{s_param}': {frequency: measurements[i][j]}})
+    return results
+
+def get_test_results(snp_file_path, s_parameter: Union[str, list[str]], reflection):
+    __throw_if_invalid_reflection_use(s_parameter, reflection)
+
+    network = skrf.Network(snp_file_path)
+    if s_parameter == 'ALL':
+        s_params = get_all_active_s_parameters(network, s_parameter, reflection)
+        return convert_snp_results_to_list_of_dict(network, s_params, reflection)
     else:
-        s_param_matrix_index = [int(value)-1 for value in s_parameter.replace('S', '').replace('',  ' ').split()]
-        measurements = [network.s_db[:, s_param_matrix_index[0], s_param_matrix_index[1]]]
-        for i, frequency in enumerate(network.f):
-            test_results.append({f'{s_parameter}': {frequency: measurements[0][i]}})
+        return convert_snp_results_to_list_of_dict(network, s_parameter, reflection)
 
-    return test_results
+def check_and_log_return_loss_pass_fail(s_parameter, frequency, return_loss, maximum_allowable_return_loss):
+    if not (-return_loss) < maximum_allowable_return_loss:
+        print(f"Test Failed at S-PARAMETER: {s_parameter}, FREQUENCY: {'%.3E'%Decimal(frequency)},  RETURN LOSS: {round(-return_loss, 4)}, OFFSET: {round(-return_loss-maximum_allowable_return_loss, 4)}")
 
-def test_log_pass_fail(snp_file_path, vna_ports, s_parameter, reflection, maximum_allowable_return_loss):
-    __throw_if_invalid_snp_file(snp_file_path, vna_ports)
+def test_tx_band_return_loss_test(snp_file_path, vna_ports, s_parameter, reflection, maximum_allowable_return_loss):
+    __throw_if_invalid_s_parameter(vna_ports, s_parameter)
 
-    test_results = test_get_test_results(snp_file_path, vna_ports, s_parameter, reflection)
+    test_results = get_test_results(snp_file_path, s_parameter, reflection)
     for result in test_results:
         for s_param, measurements in result.items():
             for frequency, return_loss in measurements.items():
-                if not (-return_loss) < maximum_allowable_return_loss:
-                    print(f"Test Failed at S-PARAMETER: {s_param}, FREQUENCY: {'%.3E'%Decimal(frequency)},  RETURN LOSS: {round(-return_loss, 4)}, OFFSET: {round(-return_loss-maximum_allowable_return_loss, 4)}")
+                check_and_log_return_loss_pass_fail(s_param, frequency, return_loss, maximum_allowable_return_loss)
 
 def start_return_loss_pass_fail_test():
-    vna_ports = [1, 2, 3]
+    vna_ports = [1, 2]
     s_parameter = 'S11'
     reflection = False
-    maximum_allowable_return_loss = 30
+    maximum_allowable_return_loss = 50
 
-    test_log_pass_fail(two_port_file_path, vna_ports, s_parameter, reflection, maximum_allowable_return_loss)
+    test_tx_band_return_loss_test(two_port_file_path, vna_ports, s_parameter, reflection, maximum_allowable_return_loss)
 
 
 if __name__ == '__main__':
     start_return_loss_pass_fail_test()
+    # print(get_s_parameter_matrix_indices('S11'))
