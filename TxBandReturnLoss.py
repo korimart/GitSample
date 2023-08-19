@@ -1,14 +1,14 @@
-from framework.instruments import Inst
+# from framework.instruments import Inst
 import os
 import sys
 import skrf
 from decimal import Decimal
 from typing import Union
-from framework.drivers.SSHDriver import SSHDriver
+# from framework.drivers.SSHDriver import SSHDriver
 import logging
-logger = logging.getLogger("RobotFramework")
+# logger = logging.getLogger("RobotFramework")
 
-sys.path.append(os.getcwd())
+# sys.path.append(os.getcwd())
 
 
 class InvalidReflectionUseException(Exception):
@@ -22,9 +22,15 @@ class InvalidSparameterException(Exception):
 
 
 class TxBandReturnLoss(object):
-    def __init__(self):
-        self.inst = Inst()
+    def __init__(self, snp_file_path, vna_ports, maximum_allowable_return_loss):
+        # self.inst = Inst()
         # self.inst.connect_all_instruments()
+
+        self.snp_file_path = snp_file_path
+        self.vna_ports = vna_ports
+        self.max_loss = maximum_allowable_return_loss
+
+        self.network = skrf.Network(self.snp_file_path)
     
     def __throw_if_invalid_reflection_use(self, s_parameter, reflection):
         if reflection and s_parameter != 'ALL':
@@ -87,9 +93,9 @@ class TxBandReturnLoss(object):
 
         return test_results
 
-    def check_and_log_return_loss_pass_fail(self, s_parameter, frequency, return_loss, maximum_allowable_return_loss):
-        if not (-return_loss) < maximum_allowable_return_loss:
-            logger.info(f"Test Failed at S-PARAMETER: {s_parameter}, FREQUENCY: {'%.3E'%Decimal(frequency)},  RETURN LOSS: {round(-return_loss, 4)}, OFFSET: {round(-return_loss-maximum_allowable_return_loss, 4)}")
+    # def check_and_log_return_loss_pass_fail(self, s_parameter, frequency, return_loss, maximum_allowable_return_loss):
+    #     if not (-return_loss) < maximum_allowable_return_loss:
+    #         logger.info(f"Test Failed at S-PARAMETER: {s_parameter}, FREQUENCY: {'%.3E'%Decimal(frequency)},  RETURN LOSS: {round(-return_loss, 4)}, OFFSET: {round(-return_loss-maximum_allowable_return_loss, 4)}")
 
     def perform_calibration_test(self):
         """!
@@ -131,5 +137,60 @@ class TxBandReturnLoss(object):
 
         self.perform_return_loss_pass_fail_test(saved_traces_file_path, vna_ports, s_parameter, reflection, maximum_allowable_return_loss)
 
+    def get_single_measurement_results(self, s_parameter: str):
+        matrix_indices = [int(value)-1 for value in s_parameter.replace('S', '').replace('',  ' ').split()]
+        measurements = self.network.s_db[:, matrix_indices[0], matrix_indices[1]]
+
+        return [{f'{s_parameter}': {frequency: measurements[i]}} for i, frequency in enumerate(self.network.f)]
+
+    def get_multiple_measurement_results(self, s_parameter: list[str]):
+        matrix_indices = [[int(value)-1 for value in s_param.replace('S', '').replace('',  ' ').split()] for s_param in s_parameter]
+        measurements = [self.network.s_db[:, indices[0], indices[1]] for indices in matrix_indices]
+
+        return [{f'{s_param}': {frequency: measurements[i][j]}} for i, s_param in enumerate(s_parameter) for j, frequency in enumerate(self.network.f)]
+    
+    def get_all_measurement_results(self):
+        n = self.network.number_of_ports
+        all_s_parameters = [f'S{i}{j}' for i in range(1, n+1) for j in range(1, n+1)]
+        measurements = [self.network.s_db[:, i, j] for i in range(n) for j in range(n)]
+
+        return [{f'{s_param}': {frequency: measurements[i][j]}} for i, s_param in enumerate(all_s_parameters) for j, frequency in enumerate(self.network.f)]
+
+    def get_all_reflection_results(self):
+        n = self.network.number_of_ports
+        reflection_parameters = [f'S{i}{i}' for i in range(1, n+1)]
+        measurements = [self.network.s_db[:, i, i] for i in range(n)]
+
+        return [{f'{s_param}': {frequency: measurements[i][j]}} for i, s_param in enumerate(reflection_parameters) for j, frequency in enumerate(self.network.f)]
+
+    def get_all_forward_results(self):
+        pass
+
+    def get_all_reverse_results(self):
+        n = self.network.number_of_ports
+        pass
+
+    def check_and_log_return_loss_pass_fail(self, test_result):
+        for result in test_result:
+            for s_parameter, measurements in result.items():
+                for frequency, return_loss in measurements.items():
+                    if not (-return_loss) < self.max_loss:
+                        print(f"Test Failed at S-PARAMETER: {s_parameter}, FREQUENCY: {'%.3E'%Decimal(frequency)},  RETURN LOSS: {round(-return_loss, 4)}, OFFSET: {round(-return_loss-self.max_loss, 4)}")
+
+
 if __name__ == '__main__':
-    pass
+    # snp_file_path = r'c:\Users\Jin_Her\OneDrive - Dell Technologies\Desktop\RFCB3\Port0_PM_2023Jun14.s2p'
+    snp_file_path = r'c:\Users\Jin_Her\OneDrive - Dell Technologies\Desktop\RFCB3\Port4_PM_SA_2023Jul12.s3p'
+    vna_ports = [1, 2, 3]
+    maximum_allowable_return_loss = 45
+
+    test = TxBandReturnLoss(snp_file_path, vna_ports, maximum_allowable_return_loss)
+
+    # result_single = test.get_single_measurement_results('S11')
+    # result_mutiple = test.get_multiple_measurement_results(['S11', 'S21'])
+    # result_reflection = test.get_all_reflection_results()
+    # result_all = test.get_all_measurement_results()
+    # result_forward = test.get_all_forward_results()
+    result_reverse = test.get_all_reverse_results()
+
+    # test.check_and_log_return_loss_pass_fail(result_reverse)
