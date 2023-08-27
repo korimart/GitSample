@@ -68,23 +68,31 @@ class CheckboxListWidget(ctk.CTkFrame):
         self.set_all_checks_checked(False)
         self.set_button_color_as_enabled(True)
 
-
+        
 class ComboboxListWidget(ctk.CTkFrame):
     def __init__(self, parent):
         self.parent = parent
         ctk.CTkFrame.__init__(self, parent)
+
+        self.all_combos_enabled = False
 
         self.title_button = None
         self.ctk_labels = None
         self.combos = None
         self.str_vars = None
 
+        self.row_height = 28
+        self.grid_rowconfigure(0, minsize=self.row_height)
+
     def create_title_button(self, title_label: str, row: int, column: int):
         if title_label != None or title_label != '':
             self.title_button = ctk.CTkButton(self, text=title_label, command=self.clear, fg_color='red')
             self.title_button.grid(row=row, column=column, columnspan=1)
 
-    def create_labels(self, labels: list[str], row: int, column: int):
+    def set_labels(self, labels: list[str], row: int, column: int):
+        # remove previous labels
+
+        # create new lables
         if labels != None or labels != []:
             self.ctk_labels = [ctk.CTkLabel(self, text=labels[i]) for i in range(len(labels))]
             for i, each in enumerate(self.ctk_labels):
@@ -93,7 +101,7 @@ class ComboboxListWidget(ctk.CTkFrame):
     def create_combos(self, combo_labels: list[str], number_of_combos: int, row: int, column: int):
         self.str_vars = [ctk.StringVar() for _ in range(number_of_combos)]
         if combo_labels != None or combo_labels != []:
-            self.combos = [ctk.CTkComboBox(self, values=combo_labels, variable=self.str_vars[i]) for i in range(number_of_combos)]
+            self.combos = [ctk.CTkComboBox(self, height=self.row_height, values=combo_labels, variable=self.str_vars[i]) for i in range(number_of_combos)]
             for i, each in enumerate(self.combos):
                 each.grid(row=row+i, column=column)
 
@@ -127,6 +135,14 @@ class ComboboxListWidget(ctk.CTkFrame):
             self.set_all_combos_enabled(True)
             self.set_default_combo_values([None for _ in range(len(self.str_vars))])
             self.set_button_color_as_enabled(True)
+
+            
+# labeledColumns = LabeledColumns()
+# labeledColumns.set_labels()
+# labeledColumns.add_column(widget)
+# labeledColumns.add_column(widget)
+# labeledColumns.add_column(widget)
+# labeledColumns.add_column(widget)
 
 
 
@@ -226,11 +242,18 @@ class EcalWindow():
         self.frequency_combo_widget = None
         self.smoothing_widget = None
 
-        self.create_frames()
+        self.widgets = []
+
+        def create_frames():
+            self.widget_frame = ctk.CTkFrame(self.window)
+            self.button_frame = ctk.CTkFrame(self.window)
+
+            self.widget_frame.pack(fill='both', side='top')
+            self.button_frame.pack(fill='both', side='bottom')
+
+        create_frames()
         self.create_buttons()
         self.create_frequency_widget()
-
-        tk.mainloop()
 
     def change_unit(self):
         for i, value in enumerate(self.frequency_widget.str_vars):
@@ -268,13 +291,6 @@ class EcalWindow():
         # self.inst.vna.set_frequency_range(start, stop, step)
         # self.inst.vna.measure_ecal(vna_ports, 'SOLT')
 
-    def create_frames(self):
-        self.widget_frame = ctk.CTkFrame(self.window)
-        self.button_frame = ctk.CTkFrame(self.window)
-
-        self.widget_frame.pack(fill='both', side='top')
-        self.button_frame.pack(fill='both', side='bottom')
-
     def create_buttons(self):
         self.close_button = ctk.CTkButton(self.button_frame, text='Close', command=self.close)
         self.clear_button = ctk.CTkButton(self.button_frame, text='Clear', command=self.clear)
@@ -297,7 +313,7 @@ class EcalWindow():
         self.frequency_entry_widget.set_default_entry_values([2, 6, 1])
 
         self.frequency_combo_widget = ComboboxListWidget(self.widget_frame)
-        self.frequency_combo_widget.create_title_button('', row=0, column=0)
+        # self.frequency_combo_widget.create_title_button('', row=0, column=0)
         self.frequency_combo_widget.create_combos(['Kilo', 'Mega', 'Giga'], 3, row=1, column=0)
         self.frequency_combo_widget.set_default_combo_values(['Giga', 'Giga', 'Mega'])
 
@@ -338,8 +354,6 @@ class PathCalWindow():
         self.create_instrument_widget()
         self.create_frequency_widget()
         self.create_smoothing_widget()
-
-        tk.mainloop()
 
     def change_unit(self):
         for i, value in enumerate(self.frequency_entry_widget.str_vars):
@@ -452,10 +466,10 @@ class MainWindow(ctk.CTkFrame):
         self.parent.title("Calibration GUI")
         self.parent.geometry("450x450")
 
-        self.e_cal_window = None
-        self.path_cal_window = None
+        self.second_window = None
 
-        self.e_cal_button = ctk.CTkButton(self.parent, text='Start E Calibration', command=self.create_e_calibration_window)
+        # self.e_cal_button = ctk.CTkButton(self.parent, text='Start E Calibration', command=self.create_e_calibration_window)
+        self.e_cal_button = ctk.CTkButton(self.parent, text='Start E Calibration', command=lambda: self.create_e_calibration_window())
         self.path_cal_button = ctk.CTkButton(self.parent, text='Start Path Calibration', command=self.create_path_calibration_window)
 
         self.e_cal_button.pack(fill='both', expand=True)
@@ -464,10 +478,14 @@ class MainWindow(ctk.CTkFrame):
         tk.mainloop()
 
     def create_e_calibration_window(self):
-        self.e_cal_window = EcalWindow(self.parent, 'E Calibration')
+        if self.second_window:
+            self.second_window.close()
+        self.second_window = EcalWindow(self.parent, 'E Calibration')
 
     def create_path_calibration_window(self):
-        self.path_cal_window = PathCalWindow(self.parent, 'Path Calibration')
+        if self.second_window:
+            self.second_window.close()
+        self.second_window = PathCalWindow(self.parent, 'Path Calibration')
 
     def get_associated_checked_indices_of_sub_widgets(self, labels, checkbox_widget, sub_checkbox_widgets):
         # checked_values_of_main_widget = self.get_checked_values(checkbox_widget)
