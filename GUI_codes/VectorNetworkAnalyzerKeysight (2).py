@@ -133,37 +133,24 @@ class VectorNetworkAnalyzerKeysight(object):
         self.__throw_if_invalid_ports(vna_ports)
         
         n = len(vna_ports)
-        try:
-            for i, j in itertools.product(range(1, n+1), range(1, n+1)):
-                trace_num = self.__get_available_trace_number()
-                self.__throw_if_invalid_trace(trace_num)
-                self.session.write(f"CALC:MEAS{trace_num}:DEF 'S{i}{j}'")
-                self.session.write(f"DISP:MEAS{trace_num}:FEED 1")
-        except InvalidTraceNumberException:
-            self.initialize_display()
-            for i, j in itertools.product(range(1, n+1), range(1, n+1)):
-                trace_num = self.__get_available_trace_number()
-                self.session.write(f"CALC:MEAS{trace_num}:DEF 'S{i}{j}'")
-                self.session.write(f"DISP:MEAS{trace_num}:FEED 1")
+        for i, j in itertools.product(range(1, n+1), range(1, n+1)):
+            trace_num = self.__get_available_trace_number()
+            self.__throw_if_invalid_trace(trace_num)
+
+            self.session.write(f"CALC:MEAS{trace_num}:DEF 'S{i}{j}'")
+            self.session.write(f"DISP:MEAS{trace_num}:FEED 1")
 
     def set_and_display_group_delay(self, s_parameter: str):
         """
         @param s_parameter 'S11', 'S12', ..., 'S21', ..., 'S44'
         """
-        try:
-            trace_num = self.__get_available_trace_number()
-            self.__throw_if_invalid_trace(trace_num)
+        trace_num = self.__get_available_trace_number()
+        self.__throw_if_invalid_trace(trace_num)
 
-            self.session.write(f"CALC:MEAS{trace_num}:DEF '{s_parameter}'") 
-            self.session.write(f"DISP:MEAS{trace_num}:FEED 1")
-            self.session.write(f"CALC:PAR:MNUM {trace_num}")
-            self.session.write(f"CALC:MEAS{trace_num}:FORM GDEL") 
-        except InvalidTraceNumberException:
-            self.initialize_display()
-            self.session.write(f"CALC:MEAS{self.trace_number}:DEF '{s_parameter}'") 
-            self.session.write(f"DISP:MEAS{self.trace_number}:FEED 1")
-            self.session.write(f"CALC:PAR:MNUM {self.trace_number}")
-            self.session.write(f"CALC:MEAS{self.trace_number}:FORM GDEL") 
+        self.session.write(f"CALC:MEAS{trace_num}:DEF '{s_parameter}'") 
+        self.session.write(f"DISP:MEAS{trace_num}:FEED 1")
+        self.session.write(f"CALC:PAR:MNUM {trace_num}")
+        self.session.write(f"CALC:MEAS{trace_num}:FORM GDEL") 
 
     def measure_ecal(self, vna_ports: list[int], calibration_method: str):
         """
