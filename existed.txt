@@ -1,6 +1,0 @@
-resolve conflict
-
-instructions:
-
-delete this line and above
-but keep this line
